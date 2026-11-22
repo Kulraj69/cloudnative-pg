@@ -82,6 +82,9 @@ func buildTestEnvironment() *testingEnvironment {
 		WithIndex(&apiv1.Backup{}, ".spec.cluster.name", func(rawObj client.Object) []string {
 			return []string{rawObj.(*apiv1.Backup).Spec.Cluster.Name}
 		}).
+		WithIndex(&apiv1.Pooler{}, poolerClusterKey, func(rawObj client.Object) []string {
+			return []string{rawObj.(*apiv1.Pooler).Spec.Cluster.Name}
+		}).
 		WithIndex(&apiv1.Backup{}, backupPhase, func(rawObj client.Object) []string {
 			return []string{string(rawObj.(*apiv1.Backup).Status.Phase)}
 		}).

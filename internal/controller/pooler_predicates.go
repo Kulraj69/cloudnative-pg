@@ -24,6 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 )
 
 // secretsPoolerPredicate contains the set of predicate functions of the pooler secrets
@@ -42,7 +44,43 @@ var (
 			return isUsefulPoolerSecret(e.ObjectNew)
 		},
 	}
+
+	// clusterPoolerPredicate only lets through Cluster updates that change
+	// the certificate secrets a Pooler derives from its Cluster. Poolers are
+	// already reconciled on their own creation, so Cluster create, delete and
+	// generic events are ignored.
+	clusterPoolerPredicate = predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool {
+			return false
+		},
+		DeleteFunc: func(event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(event.GenericEvent) bool {
+			return false
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			return poolerCertificatesChanged(e.ObjectOld, e.ObjectNew)
+		},
+	}
 )
+
+// poolerCertificatesChanged checks whether a Cluster update changed any of the
+// secret names used as defaults by the Poolers of that Cluster
+func poolerCertificatesChanged(oldObject, newObject client.Object) bool {
+	oldCluster, ok := oldObject.(*apiv1.Cluster)
+	if !ok {
+		return false
+	}
+	newCluster, ok := newObject.(*apiv1.Cluster)
+	if !ok {
+		return false
+	}
+
+	return oldCluster.GetServerCASecretName() != newCluster.GetServerCASecretName() ||
+		oldCluster.GetClientCASecretName() != newCluster.GetClientCASecretName() ||
+		oldCluster.GetServerTLSSecretName() != newCluster.GetServerTLSSecretName()
+}
 
 func isOwnedByPoolerOrSatisfiesPredicate(
 	object client.Object,

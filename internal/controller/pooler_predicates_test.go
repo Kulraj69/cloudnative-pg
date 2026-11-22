@@ -24,7 +24,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -80,5 +82,56 @@ var _ = Describe("pooler_predicates unit tests", func() {
 		isOwnedByPoolerOrSatisfiesPredicate(secret, func(_ client.Object) bool {
 			return false
 		})
+	})
+})
+
+var _ = Describe("clusterPoolerPredicate", func() {
+	newCluster := func() *apiv1.Cluster {
+		return &apiv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster-example", Namespace: "default"},
+		}
+	}
+
+	update := func(oldCluster, newCluster *apiv1.Cluster) bool {
+		return clusterPoolerPredicate.Update(event.UpdateEvent{ObjectOld: oldCluster, ObjectNew: newCluster})
+	}
+
+	It("triggers when the server CA secret changes", func() {
+		oldCluster := newCluster()
+		newCluster := oldCluster.DeepCopy()
+		newCluster.Spec.Certificates = &apiv1.CertificatesConfiguration{
+			ServerCASecret:  "my-server-tls",
+			ServerTLSSecret: "my-server-tls",
+		}
+		Expect(update(oldCluster, newCluster)).To(BeTrue())
+	})
+
+	It("triggers when the client CA secret changes", func() {
+		oldCluster := newCluster()
+		newCluster := oldCluster.DeepCopy()
+		newCluster.Spec.Certificates = &apiv1.CertificatesConfiguration{ClientCASecret: "my-client-ca"}
+		Expect(update(oldCluster, newCluster)).To(BeTrue())
+	})
+
+	It("triggers when the server TLS secret changes", func() {
+		oldCluster := newCluster()
+		newCluster := oldCluster.DeepCopy()
+		newCluster.Spec.Certificates = &apiv1.CertificatesConfiguration{ServerTLSSecret: "my-server-tls"}
+		Expect(update(oldCluster, newCluster)).To(BeTrue())
+	})
+
+	It("ignores updates that keep the same certificate secrets", func() {
+		oldCluster := newCluster()
+		newCluster := oldCluster.DeepCopy()
+		newCluster.Spec.Instances = 3
+		newCluster.Status.Phase = apiv1.PhaseHealthy
+		Expect(update(oldCluster, newCluster)).To(BeFalse())
+	})
+
+	It("ignores create, delete and generic events", func() {
+		cluster := newCluster()
+		Expect(clusterPoolerPredicate.Create(event.CreateEvent{Object: cluster})).To(BeFalse())
+		Expect(clusterPoolerPredicate.Delete(event.DeleteEvent{Object: cluster})).To(BeFalse())
+		Expect(clusterPoolerPredicate.Generic(event.GenericEvent{Object: cluster})).To(BeFalse())
 	})
 })

@@ -196,6 +196,38 @@ var _ = Describe("pooler_controller unit tests", func() {
 		})
 	})
 
+	It("should make sure that mapClusterToPoolers enqueues the poolers of the cluster", func() {
+		ctx := context.Background()
+		namespace1 := newFakeNamespace(env.client)
+		cluster := newFakeCNPGCluster(env.client, namespace1)
+		pooler1 := newFakePooler(env.client, cluster)
+		pooler2 := newFakePooler(env.client, cluster)
+
+		otherCluster := newFakeCNPGCluster(env.client, namespace1)
+		otherPooler := newFakePooler(env.client, otherCluster)
+
+		namespace2 := newFakeNamespace(env.client)
+		sameNameCluster := cluster.DeepCopy()
+		sameNameCluster.Namespace = namespace2
+		otherNamespacePooler := newFakePooler(env.client, sameNameCluster)
+
+		reqs := env.poolerReconciler.mapClusterToPoolers()(ctx, cluster)
+
+		Expect(reqs).To(ConsistOf(
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: pooler1.Name, Namespace: namespace1}},
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: pooler2.Name, Namespace: namespace1}},
+		))
+		Expect(reqs).ToNot(ContainElement(
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: otherPooler.Name, Namespace: namespace1}},
+		))
+		Expect(reqs).ToNot(ContainElement(
+			reconcile.Request{NamespacedName: types.NamespacedName{
+				Name:      otherNamespacePooler.Name,
+				Namespace: namespace2,
+			}},
+		))
+	})
+
 	It("should requeue without panicking when the referenced cluster is missing", func() {
 		ctx := context.Background()
 		namespace := newFakeNamespace(env.client)
